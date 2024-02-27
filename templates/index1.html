@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片处理示例</title>
+    <style>
+        /* 样式部分 */
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #imageContainer {
+            text-align: center;
+            position: relative;
+        }
+        #canvas {
+            display: inline-block;
+        }
+        .arrow {
+            font-size: 100px;
+            font-weight: bold;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+        }
+        .arrow-left {
+            left: 10px;
+            color: #FFD700; /* 金黄色 */
+        }
+        .arrow-right {
+            right: 10px;
+            color: #FFD700; /* 金黄色 */
+        }
+        .thumbnail-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+        }
+        .thumbnail-image {
+            max-width: 100px;
+            max-height: 100px;
+            margin: 0 5px;
+            cursor: pointer;
+        }
+        .selected {
+            border: 2px solid #007bff;
+        }
+        .buttons-container {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .action-button {
+            font-size: 20px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #fileInput {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>图片处理示例</h1>
+
+    <div id="imageContainer">
+        <canvas id="canvas" width="800" height="600"></canvas>
+        <div class="arrow arrow-left" onclick="switchImage(-1)">&larr;</div>
+        <div class="arrow arrow-right" onclick="switchImage(1)">&rarr;</div>
+    </div>
+
+    <div id="thumbnailContainer" class="thumbnail-container"></div>
+
+    <div class="buttons-container">
+        <label for="fileInput" class="action-button">选择文件</label>
+        <button id="submitButton" class="action-button" onclick="submitImage()">识别图片</button>
+        <input type="file" id="fileInput" accept="image/*" directory webkitdirectory multiple>
+    </div>
+
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const fileInput = document.getElementById('fileInput');
+        const previewRow = document.getElementById('previewRow');
+
+        let images = [];
+        let currentIndex = 0;
+        let currentPreviewIndex = 0;
+
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(event) {
+            images = Array.from(event.target.files).filter(file => file.type.startsWith('image/'));
+            currentIndex = 0;
+            currentPreviewIndex = 0;
+            showCurrentImage();
+            showPreviewImages();
+        }
+
+        function showCurrentImage() {
+            if (images.length > 0) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const img = new Image();
+                    img.onload = function() {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        context.clearRect(0, 0, canvas.width, canvas.height);
+                        context.drawImage(img, 0, 0, img.width, img.height);
+                        showPreviewImages();
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(images[currentIndex]);
+            }
+        }
+
+        function showPreviewImages() {
+            const previewContainer = document.getElementById('thumbnailContainer');
+            previewContainer.innerHTML = '';
+
+            for (let i = currentPreviewIndex; i < Math.min(currentPreviewIndex + 8, images.length); i++) {
+                const previewImage = document.createElement('img');
+                previewImage.className = 'thumbnail-image';
+                previewImage.src = URL.createObjectURL(images[i]);
+                previewImage.addEventListener('click', () => switchPreviewImage(i));
+                if (i === currentIndex) {
+                    previewImage.classList.add('selected');
+                }
+                previewContainer.appendChild(previewImage);
+            }
+        }
+
+        function switchPreviewImage(index) {
+            currentIndex = index;
+            showCurrentImage();
+            showPreviewImages();
+        }
+
+let rectanglesData = []; // 存储矩形框和类别数据
+
+    async function submitImage() {
+        if (images.length > 0) {
+            const currentImageData = images[currentIndex];
+            const formData = new FormData();
+
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                const base64Data = event.target.result.split(',')[1];
+                const requestData = { image: base64Data };
+
+                try {
+                    const response = await fetch('/process_image', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestData)
+                    });
+
+                    const responseData = await response.json();
+                    rectanglesData = responseData; // 保存矩形框和类别数据
+                    drawImageAndRectangles(event.target.result);
+                } catch (error) {
+                    console.error(error);
+                }
+            };
+            reader.readAsDataURL(currentImageData);
+        }
+    }
+
+function drawImageAndRectangles(imageData) {
+        const img = new Image();
+        img.onload = function() {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 计算绘制位置，将图片居中显示
+            const offsetX = (canvas.width - img.width) / 2;
+            const offsetY = (canvas.height - img.height) / 2;
+
+            context.drawImage(img, offsetX, offsetY, img.width, img.height);
+
+            for (const data of rectanglesData) {
+                const vertices = data.vertices;
+                const label = data.label;
+
+                context.beginPath();
+                context.moveTo(vertices[0].x + offsetX, vertices[0].y + offsetY);
+                for (let i = 1; i < vertices.length; i++) {
+                    context.lineTo(vertices[i].x + offsetX, vertices[i].y + offsetY);
+                }
+                context.closePath();
+                context.strokeStyle = '#ff0000';
+                context.lineWidth = 2;
+                context.stroke();
+
+                context.fillStyle = '#ff0000';
+                context.fillText(label, vertices[0].x + offsetX, vertices[0].y + offsetY - 5);
+
+                // 显示类别数据在图片右侧
+                context.font = 'bold 20px Arial';
+                context.textAlign = 'start';
+                context.fillStyle = '#000000';
+                context.fillText(label, canvas.width + 10, vertices[0].y + offsetY);
+            }
+        };
+        img.src = imageData;
+    }
+
+    function switchImage(direction) {
+        if (images.length > 0) {
+            currentIndex += direction;
+            if (currentIndex < 0) {
+                currentIndex = images.length - 1;
+            } else if (currentIndex >= images.length) {
+                currentIndex = 0;
+            }
+            showCurrentImage();
+        }
+    }
+
+</script>
+</body>
+</html>
